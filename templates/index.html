@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C Compiler Visualizer</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <h1>C Compiler Visualizer by CodePulse</h1>
+        
+        <div class="code-container">
+            <textarea id="code" placeholder="Enter your C code here...">
+int main() {
+    printf("Hello, World!");
+    return 0;
+}</textarea>
+        </div>
+        
+        <button onclick="compile()">
+            <span id="button-text">Compile & Visualize</span>
+        </button>
+        
+        <div class="output-container">
+            <div class="output">
+                <h2>Tokens</h2>
+                <pre id="tokens"><span class="instruction">Click "Compile" to see tokenized output</span></pre>
+            </div>
+            
+            <div class="output">
+                <h2>Parse Tree</h2>
+                <pre id="parse-tree"><span class="instruction">Click "Compile" to see parse tree</span></pre>
+            </div>
+            
+            
+            <div class="output">
+                <h2>Symbol Table</h2>
+                <pre id="symbol-table"><span class="instruction">Click "Compile" to see symbol table</span></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function compile() {
+            const code = document.getElementById('code').value;
+            const tokensEl = document.getElementById('tokens');
+            const parseTreeEl = document.getElementById('parse-tree');
+            const symbol = document.getElementById('symbol-table');
+            const buttonText = document.getElementById('button-text');
+            
+            // Save original button text
+            const originalButtonText = buttonText.textContent;
+            
+            // Update UI for loading state
+            buttonText.textContent = 'Compiling...';
+            tokensEl.innerHTML = '<div class="status"><div class="loading"></div>Tokenizing code...</div>';
+            parseTreeEl.innerHTML = '<div class="status"><div class="loading"></div>Building parse tree...</div>';
+            symbol.innerHTML = '<div class="status"><div class="loading"></div>Building symbol table...</div>';
+            
+            try {
+                const response = await fetch('/compile', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `code=${encodeURIComponent(code)}`
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Compilation failed');
+                }
+                
+                // Format tokens with syntax highlighting
+              // Format tokens with syntax highlighting
+if (data.tokens && !data.tokens.includes('Error')) {
+    const formattedTokens = data.tokens.split('\n')
+        .filter(line => line.trim() !== '') // Filter out empty lines
+        .map(line => {
+            const parts = line.split(' ');
+            // Handle cases where token might have spaces in it (like string literals)
+            const type = parts[0];
+            const value = parts.slice(1).join(' ');
+            return `<span class="token-${type.toLowerCase()}">${type.padEnd(12)} ${value}</span>`;
+        })
+        .join('\n');
+    tokensEl.innerHTML = formattedTokens;
+} else {
+    tokensEl.innerHTML = data.tokens || 'No tokens generated';
+}
+                
+                // Format parse tree
+                if (data.parse_tree && !data.parse_tree.includes('Error')) {
+                    parseTreeEl.textContent = data.parse_tree;
+                } else {
+                    parseTreeEl.innerHTML = `<div class="error">${data.parse_tree}</div>`;
+                }
+                // Format Symbol Table
+                if(data.symbol_table && !data.symbol_table.includes('Error')){
+                    symbol.textContent = data.symbol_table;
+                }
+                else{
+                symbol.innerHTML = `<div class="error">${data.symbol_table}</div>`;
+                }
+                
+            } catch (error) {
+                tokensEl.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+                parseTreeEl.innerHTML = '';
+                console.error('Compilation failed:', error);
+            } finally {
+                buttonText.textContent = originalButtonText;
+            }
+        }
+    </script>
+</body>
+</html>
