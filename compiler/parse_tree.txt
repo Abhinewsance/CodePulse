@@ -1,0 +1,41 @@
+TranslationUnit
++-- Include Directives
+    +-- #include<stdio.h>
++-- Function Definition
+    +-- Return Type: void
+    +-- Function Name: foo
+    +-- Parameters
+        +-- Parameter
+        |   +-- Type: int
+        |   +-- Identifier: a
+    +-- Body (Compound Statement)
+        +-- If Statement
+            +-- Condition: a == 0 
+            +-- Body (Compound Statement)
+                +-- Return Statement
+                    +-- Expression: b 
++-- Function Definition
+    +-- Return Type: int
+    +-- Function Name: main
+    +-- Parameters
+    +-- Body (Compound Statement)
+        +-- Declaration
+            +-- Type: int
+            +-- Identifier: a
+            +-- Initializer
+                +-- Expression: 10 
+        +-- Declaration
+            +-- Type: int
+            +-- Identifier: a
+            +-- Initializer
+                +-- Expression: 5 
+        +-- Declaration
+            +-- Type: int
+            +-- Identifier: b
+            +-- Initializer
+                +-- Expression: 10 
+        +-- Declaration
+            +-- Type: int
+            +-- Identifier: c
+        +-- Return Statement
+            +-- Expression: 0 

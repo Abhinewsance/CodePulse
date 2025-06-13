@@ -1,0 +1,10 @@
+-------------------------
+ Name      Type     Scope
+-------------------------
+foo        function global    
+a          int      foo       
+main       function global    
+a          int      main      
+b          int      main      
+c          int      main      
+-------------------------
