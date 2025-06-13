@@ -2,143 +2,393 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include<ctype.h>
 
-#define MAX_SYMBOLS 100
-#define MAX_LINE 256
+#define MAX_SYMBOLS 1000
+#define MAX_PARAMS 20
+#define MAX_TOKEN_LEN 100
+
+typedef enum { TYPE_INT, TYPE_FLOAT, TYPE_CHAR, TYPE_VOID, TYPE_UNKNOWN } DataType;
 
 typedef struct {
-    char name[50];
-    char type[20];
-    char scope[50];
+    char name[MAX_TOKEN_LEN];
+    DataType type;
+    bool isFunction;
+    int paramCount;
+    DataType paramTypes[MAX_PARAMS];
 } Symbol;
+
+FILE *fp;
+bool semanticError = false;
 
 Symbol symbolTable[MAX_SYMBOLS];
 int symbolCount = 0;
 
-FILE *input, *output;
+char type[50], token[100];
 
-bool isDeclared(const char *name, const char *scope) {
-    for (int i = 0; i < symbolCount; i++) {
-        if (strcmp(symbolTable[i].name, name) == 0 &&
-            (strcmp(symbolTable[i].scope, scope) == 0 || strcmp(symbolTable[i].scope, "global") == 0)) {
-            return true;
-        }
-    }
-    return false;
+// Utility functions to convert string tokens to DataType enum
+DataType stringToDataType(const char *str) {
+    if (strcmp(str, "int") == 0) return TYPE_INT;
+    if (strcmp(str, "float") == 0) return TYPE_FLOAT;
+    if (strcmp(str, "char") == 0) return TYPE_CHAR;
+    if (strcmp(str, "void") == 0) return TYPE_VOID;
+    return TYPE_UNKNOWN;
 }
 
-const char* getType(const char *name, const char *scope) {
-    for (int i = 0; i < symbolCount; i++) {
-        if (strcmp(symbolTable[i].name, name) == 0 &&
-            (strcmp(symbolTable[i].scope, scope) == 0 || strcmp(symbolTable[i].scope, "global") == 0)) {
-            return symbolTable[i].type;
-        }
+const char *dataTypeToString(DataType dt) {
+    switch(dt) {
+        case TYPE_INT: return "int";
+        case TYPE_FLOAT: return "float";
+        case TYPE_CHAR: return "char";
+        case TYPE_VOID: return "void";
+        default: return "unknown";
     }
-    return NULL;
 }
 
-void addSymbol(const char *type, const char *name, const char *scope) {
-    strcpy(symbolTable[symbolCount].type, type);
+// Error reporting
+void semanticReportError(const char *msg) {
+    fprintf(stderr, "Semantic Error: %s\n", msg);
+    semanticError = true;
+}
+
+// Lookup symbol by name
+int findSymbol(const char *name) {
+    for (int i = 0; i < symbolCount; i++) {
+        if (strcmp(symbolTable[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+// Add symbol to table
+int addSymbol(const char *name, DataType type, bool isFunction) {
+    if (findSymbol(name) != -1) {
+        char err[200];
+        snprintf(err, sizeof(err), "Duplicate declaration of '%s'", name);
+        semanticReportError(err);
+        return -1;
+    }
+    if (symbolCount >= MAX_SYMBOLS) {
+        semanticReportError("Symbol table overflow");
+        return -1;
+    }
     strcpy(symbolTable[symbolCount].name, name);
-    strcpy(symbolTable[symbolCount].scope, scope);
-    symbolCount++;
+    symbolTable[symbolCount].type = type;
+    symbolTable[symbolCount].isFunction = isFunction;
+    symbolTable[symbolCount].paramCount = 0;
+    return symbolCount++;
 }
 
-void printSymbolTable() {
-    printf("Symbol Table:- \n");
-    fprintf(output, "-------------------------\n");
-    fprintf(output, " Name      Type     Scope\n");
-    fprintf(output, "-------------------------\n");
-    printf(       "-------------------------\n");
-    printf(       "Name       Type     Scope\n");
-    printf(       "-------------------------\n");
-
-    for (int i = 0; i < symbolCount; i++) {
-        fprintf(output, "%-10s %-8s %-10s\n", symbolTable[i].name, symbolTable[i].type, symbolTable[i].scope);
-        printf(        "%-10s %-8s %-10s\n", symbolTable[i].name, symbolTable[i].type, symbolTable[i].scope);
+// Add function parameters to symbol table entry
+void addFunctionParams(int symIndex, DataType *params, int count) {
+    if (symIndex < 0 || symIndex >= symbolCount) return;
+    symbolTable[symIndex].paramCount = count;
+    for (int i = 0; i < count; i++) {
+        symbolTable[symIndex].paramTypes[i] = params[i];
     }
-    fprintf(output, "-------------------------\n");
-    printf(       "-------------------------\n");
 }
 
-void analyzeParseTree() {
-    char line[MAX_LINE];
-    char currentScope[50] = "global";
-    char lastType[20] = "";
+// Check if identifier is declared
+bool isDeclared(const char *name) {
+    return findSymbol(name) != -1;
+}
 
-    while (fgets(line, sizeof(line), input)) {
-        // Remove trailing newline
-        line[strcspn(line, "\r\n")] = 0;
+// Check parameter types match
+bool checkParamTypes(int symIndex, DataType *callParams, int callCount) {
+    if (symIndex < 0 || symIndex >= symbolCount) return false;
+    Symbol *sym = &symbolTable[symIndex];
+    if (sym->paramCount != callCount) return false;
+    for (int i = 0; i < callCount; i++) {
+        if (sym->paramTypes[i] != callParams[i]) return false;
+    }
+    return true;
+}
 
-        char *trimmed = line;
-        while (*trimmed == ' ' || *trimmed == '+' || *trimmed == '-' || *trimmed == '|') trimmed++;
+// Parsing forward declarations
 
-        if (strstr(trimmed, "Function Name:") == trimmed) {
-            sscanf(trimmed, "Function Name: %s", currentScope);
-            addSymbol("function", currentScope, "global");
-        } else if (strstr(trimmed, "Type:") == trimmed) {
-            sscanf(trimmed, "Type: %s", lastType);
-        } else if (strstr(trimmed, "Identifier:") == trimmed) {
-            char identifier[50];
-            sscanf(trimmed, "Identifier: %s", identifier);
-            if (!isDeclared(identifier, currentScope)) {
-                addSymbol(lastType, identifier, currentScope);
+void parseTranslationUnit();
+void parseFunction();
+void parseParameters(DataType *params, int *paramCount);
+void parseFunctionBody(DataType funcReturnType);
+void parseDeclaration();
+void parseStatement();
+void parseExpression();  // Simplified: just read tokens until ; or )
+
+// Global variable to keep track of current function return type
+DataType currentFunctionReturnType = TYPE_UNKNOWN;
+
+// Helpers
+bool isDatatype(const char *token) {
+    return strcmp(token, "int") == 0 || strcmp(token, "float") == 0 ||
+           strcmp(token, "char") == 0 || strcmp(token, "void") == 0;
+}
+
+bool isIdentifier(const char *type) {
+    return strcmp(type, "IDENTIFIER") == 0;
+}
+
+bool isNumber(const char *type) {
+    return strcmp(type, "NUMBER") == 0;
+}
+
+// Consume next token pair, return false if EOF
+bool nextToken() {
+    if (fscanf(fp, "%s %s", type, token) == EOF) return false;
+    return true;
+}
+
+// Parse Translation Unit: multiple functions or declarations
+void parseTranslationUnit() {
+    while (nextToken()) {
+        if (strcmp(type, "KEYWORD") == 0 && isDatatype(token)) {
+            // Peek next token
+            long pos = ftell(fp);
+            char nextType[50], nextToken[100];
+            if (fscanf(fp, "%s %s", nextType, nextToken) == EOF) break;
+
+            if (isIdentifier(nextType)) {
+                long pos2 = ftell(fp);
+                char tType[50], tToken[100];
+                if (fscanf(fp, "%s %s", tType, tToken) == EOF) break;
+
+                if (strcmp(tToken, "(") == 0) {
+                    // Function
+                    fseek(fp, pos, SEEK_SET);
+                    parseFunction();
+                } else {
+                    fseek(fp, pos, SEEK_SET);
+                    parseDeclaration();
+                }
+            } else {
+                fseek(fp, pos, SEEK_SET);
+                parseDeclaration();
             }
-        } else if (strstr(trimmed, "Expression:") == trimmed) {
-            char expr[200];
-            strcpy(expr, trimmed + strlen("Expression: "));
-
-            // Check for assignment expressions like x = y + z
-            char lhs[50], rhs[150];
-            if (strstr(expr, "=")) {
-                sscanf(expr, "%s = %[^\n]", lhs, rhs);
-                if (!isDeclared(lhs, currentScope)) {
-                    printf("Warning: Undeclared identifier '%s' in scope '%s'\n", lhs, currentScope);
-                    fprintf(output, "Warning: Undeclared identifier '%s' in scope '%s'\n", lhs, currentScope);
-                }
-                // Check identifiers in RHS
-                char *token = strtok(rhs, " +-*/<>()");
-                while (token) {
-                    if (!isdigit(token[0]) && !isDeclared(token, currentScope)) {
-                        printf("Warning: Undeclared identifier '%s' used in expression in scope '%s'\n", token, currentScope);
-                        fprintf(output, "Warning: Undeclared identifier '%s' used in expression in scope '%s'\n", token, currentScope);
-                    }
-                    token = strtok(NULL, " +-*/<>()");
-                }
-
-                // Type checking (simplified): types of lhs and first rhs identifier must match
-                const char *lhsType = getType(lhs, currentScope);
-                char firstId[50];
-                sscanf(rhs, "%s", firstId);
-                const char *rhsType = getType(firstId, currentScope);
-                if (lhsType && rhsType && strcmp(lhsType, rhsType) != 0) {
-                    printf("Type Error: Cannot assign %s to %s\n", rhsType, lhsType);
-                    fprintf(output, "Type Error: Cannot assign %s to %s\n", rhsType, lhsType);
-                }
-            }
+        } else {
+            // Skip unknown or unhandled tokens
+            // For example PREPROCESSOR or KEYWORD void outside function
         }
+    }
+}
+
+// Parse function definition
+void parseFunction() {
+    // Expect return type
+    if (strcmp(type, "KEYWORD") != 0 || !isDatatype(token)) {
+        semanticReportError("Expected function return type");
+        return;
+    }
+    DataType retType = stringToDataType(token);
+
+    if (!nextToken()) {
+        semanticReportError("Unexpected EOF after return type");
+        return;
+    }
+    if (!isIdentifier(type)) {
+        semanticReportError("Expected function name identifier");
+        return;
+    }
+
+    char funcName[MAX_TOKEN_LEN];
+    strcpy(funcName, token);
+
+    if (!nextToken() || strcmp(token, "(") != 0) {
+        semanticReportError("Expected '(' after function name");
+        return;
+    }
+
+    // Add function symbol
+    int symIndex = addSymbol(funcName, retType, true);
+
+    // Parse parameters
+    DataType paramTypes[MAX_PARAMS];
+    int paramCount = 0;
+    parseParameters(paramTypes, &paramCount);
+    if (symIndex != -1) addFunctionParams(symIndex, paramTypes, paramCount);
+
+    // After parameters, expect ')'
+    if (!nextToken() || strcmp(token, ")") != 0) {
+        semanticReportError("Expected ')' after function parameters");
+        return;
+    }
+
+    // Expect '{'
+    if (!nextToken() || strcmp(token, "{") != 0) {
+        semanticReportError("Expected '{' after function header");
+        return;
+    }
+
+    currentFunctionReturnType = retType;
+    parseFunctionBody(retType);
+}
+
+// Parse parameters list
+void parseParameters(DataType *params, int *paramCount) {
+    *paramCount = 0;
+    while (true) {
+        long pos = ftell(fp);
+        if (!nextToken()) {
+            semanticReportError("Unexpected EOF in function parameters");
+            return;
+        }
+        if (strcmp(token, ")") == 0) {
+            fseek(fp, pos, SEEK_SET);
+            return;
+        }
+        if (strcmp(type, "KEYWORD") == 0 && isDatatype(token)) {
+            params[*paramCount] = stringToDataType(token);
+
+            if (!nextToken() || !isIdentifier(type)) {
+                semanticReportError("Expected identifier in parameters");
+                return;
+            }
+            // We could add param variable symbol here for local checking if needed
+
+            (*paramCount)++;
+
+            long pos2 = ftell(fp);
+            if (!nextToken()) {
+                semanticReportError("Unexpected EOF in parameters");
+                return;
+            }
+            if (strcmp(token, ",") == 0) {
+                continue;
+            } else if (strcmp(token, ")") == 0) {
+                fseek(fp, pos2, SEEK_SET);
+                return;
+            } else {
+                semanticReportError("Expected ',' or ')' in parameters");
+                return;
+            }
+        } else {
+            semanticReportError("Expected data type in parameters");
+            return;
+        }
+    }
+}
+
+// Parse function body - for semantic checks, we only check declarations and return statements for now
+void parseFunctionBody(DataType funcReturnType) {
+    while (true) {
+        if (!nextToken()) {
+            semanticReportError("Unexpected EOF in function body");
+            return;
+        }
+        if (strcmp(token, "}") == 0) {
+            // End of function
+            return;
+        }
+        if (strcmp(type, "KEYWORD") == 0) {
+            if (isDatatype(token)) {
+                parseDeclaration();
+            } else if (strcmp(token, "return") == 0) {
+                // parse return expression and check type
+                char exprTypeStr[100] = "";
+                DataType exprType = TYPE_UNKNOWN;
+                char expr[256] = "";
+
+                // read tokens until ;
+                while (true) {
+                    long pos = ftell(fp);
+                    if (!nextToken()) {
+                        semanticReportError("Unexpected EOF in return statement");
+                        return;
+                    }
+                    if (strcmp(token, ";") == 0) break;
+                    strcat(expr, token);
+                    strcat(expr, " ");
+                }
+
+                // For simplicity, let's just check if return expr is empty (void return)
+                if (strlen(expr) == 0 && funcReturnType != TYPE_VOID) {
+                    semanticReportError("Non-void function must return a value");
+                }
+                // We can extend this to type check expression if needed
+            } else {
+                // For simplicity skip other statements
+                // Ideally parse statements, check usage of identifiers, etc.
+            }
+        } else if (isIdentifier(type)) {
+            // Could be function call or assignment
+            // Check if function call and check args (not implemented here)
+            // Check if identifier declared
+            if (!isDeclared(token)) {
+                char err[200];
+                snprintf(err, sizeof(err), "Undeclared identifier '%s' used", token);
+                semanticReportError(err);
+                // skip rest of statement until ';'
+                while (nextToken() && strcmp(token, ";") != 0);
+            } else {
+                // Skip for now
+                // could parse assignments or function calls
+                while (nextToken() && strcmp(token, ";") != 0);
+            }
+        } else {
+            // skip unexpected tokens
+        }
+    }
+}
+
+// Parse variable declaration
+void parseDeclaration() {
+    if (strcmp(type, "KEYWORD") != 0 || !isDatatype(token)) {
+        semanticReportError("Expected data type for declaration");
+        return;
+    }
+    DataType varType = stringToDataType(token);
+
+    if (!nextToken()) {
+        semanticReportError("Unexpected EOF after type in declaration");
+        return;
+    }
+    if (!isIdentifier(type)) {
+        semanticReportError("Expected identifier after type");
+        return;
+    }
+    char varName[MAX_TOKEN_LEN];
+    strcpy(varName, token);
+
+    // Check duplicate declaration
+    if (findSymbol(varName) != -1) {
+        char err[200];
+        snprintf(err, sizeof(err), "Duplicate declaration of variable '%s'", varName);
+        semanticReportError(err);
+        // skip rest
+        while (nextToken() && strcmp(token, ";") != 0);
+        return;
+    }
+    // Add variable symbol
+    addSymbol(varName, varType, false);
+
+    if (!nextToken()) {
+        semanticReportError("Unexpected EOF after identifier");
+        return;
+    }
+
+    if (strcmp(token, ";") == 0) {
+        // simple declaration without initializer
+        return;
+    } else if (strcmp(token, "=") == 0) {
+        // skip initializer expression until ';'
+        while (nextToken() && strcmp(token, ";") != 0);
+    } else {
+        semanticReportError("Expected ';' or '=' after identifier in declaration");
+        return;
     }
 }
 
 int main() {
-    input = fopen("parse_tree.txt", "r");
-    if (!input) {
-        perror("Could not open parse_tree.txt");
+    fp = fopen("tokens.txt", "r");
+    if (!fp) {
+        perror("Could not open tokens.txt");
         return 1;
     }
 
-    output = fopen("symbol_table.txt", "w");
-    if (!output) {
-        perror("Could not open symbol_table.txt");
-        fclose(input);
-        return 1;
+    parseTranslationUnit();
+
+    if (semanticError) {
+        printf("Semantic analysis completed with errors.\n");
+    } else {
+        printf("Semantic analysis completed successfully.\n");
     }
 
-    analyzeParseTree();
-    printSymbolTable();
-
-    fclose(input);
-    fclose(output);
+    fclose(fp);
     return 0;
 }
